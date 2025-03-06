@@ -1,3 +1,4 @@
+use proc_macro2::TokenStream;
 use quote::quote;
 
 pub(crate) fn expand_derive_bounded_arbitrary(
@@ -5,79 +6,84 @@ pub(crate) fn expand_derive_bounded_arbitrary(
 ) -> proc_macro::TokenStream {
     let parsed = syn::parse_macro_input!(item as syn::DeriveInput);
 
-    match &parsed.data {
-        syn::Data::Struct(data_struct) => derive_struct(&parsed, data_struct),
-        syn::Data::Enum(data_enum) => derive_enum(data_enum),
-        syn::Data::Union(data_union) => derive_union(data_union),
-    }
-}
-
-fn derive_struct(
-    input: &syn::DeriveInput,
-    data_struct: &syn::DataStruct,
-) -> proc_macro::TokenStream {
-    let fields = data_struct.fields.iter().map(|field| {
-        let ty = &field.ty;
-        let any_call = if let Some(attr) = field.attrs.first() {
-            let _path = attr.meta.require_path_only().unwrap();
-            // TODO: actually check the path
-            // (rn this relies in bounded being the only attr declared)
-            quote!(bounded_arbitrary::bounded_any::<#ty, N>())
-        } else {
-            quote!(kani::any::<#ty>())
-        };
-
-        if let Some(ident) = &field.ident { quote!(#ident: #any_call) } else { quote!(#any_call) }
-    });
+    let constructor = match &parsed.data {
+        syn::Data::Struct(data_struct) => {
+            generate_type_constructor(quote!(Self), &data_struct.fields)
+        }
+        syn::Data::Enum(data_enum) => enum_constructor(&parsed.ident, data_enum),
+        syn::Data::Union(data_union) => union_constructor(data_union),
+    };
 
     // parse generics
-    let (generics, clauses) = quote_generics(&input.generics);
+    let (generics, clauses) = quote_generics(&parsed.generics);
+    let name = &parsed.ident;
 
-    let name = &input.ident;
-    let named_fields = data_struct.fields.iter().all(|field| field.ident.is_some());
-    if named_fields {
-        quote! {
-            impl #generics bounded_arbitrary::BoundedArbitrary for #name #generics
+    // generate the implementation
+    quote! {
+        impl #generics kani::BoundedArbitrary for #name #generics
             #clauses
-            {
-                fn bounded_any<const N: usize>() -> Self {
-                    Self {
-                        #(#fields),*
-                    }
-                }
+        {
+            fn bounded_any<const N: usize>() -> Self {
+                #constructor
             }
         }
-        .into()
+    }
+    .into()
+}
+
+fn generate_type_constructor(type_name: TokenStream, fields: &syn::Fields) -> TokenStream {
+    let field_calls = fields.iter().map(generate_any_call);
+    if fields.iter().all(|f| f.ident.is_some()) {
+        quote!(#type_name { #(#field_calls),* })
     } else {
-        quote! {
-            impl bounded_arbitrary::BoundedArbitrary for #name {
-                fn bounded_any<const N: usize>() -> Self {
-                    Self (
-                        #(#fields),*
-                    )
-                }
-            }
-        }
-        .into()
+        quote!(#type_name( #(#field_calls),* ))
     }
 }
 
-fn quote_generics(
-    generics: &syn::Generics,
-) -> (proc_macro2::TokenStream, proc_macro2::TokenStream) {
+fn enum_constructor(ident: &syn::Ident, data_enum: &syn::DataEnum) -> TokenStream {
+    let variant_constructors = data_enum.variants.iter().map(|variant| {
+        let variant_name = &variant.ident;
+        generate_type_constructor(quote!(#ident::#variant_name), &variant.fields)
+    });
+    let n_variants = data_enum.variants.len();
+    let cases =
+        variant_constructors.enumerate().map(|(idx, var_constr)| quote!(#idx => #var_constr));
+
+    quote! {
+        let which_variant: usize = kani::any_where(|n| *n < #n_variants);
+        match which_variant {
+            #(#cases),* ,
+            _ => unreachable!()
+        }
+    }
+}
+
+fn union_constructor(_data_union: &syn::DataUnion) -> TokenStream {
+    todo!()
+}
+
+fn quote_generics(generics: &syn::Generics) -> (Option<TokenStream>, Option<TokenStream>) {
     let params = generics.type_params().map(|param| quote!(#param)).collect::<Vec<_>>();
     let where_clauses = generics.type_params().map(|param| quote!(#param : kani::Arbitrary));
     if !params.is_empty() {
-        (quote!(<#(#params),*>), quote!(where #(#where_clauses),*))
+        (Some(quote!(<#(#params),*>)), Some(quote!(where #(#where_clauses),*)))
     } else {
-        (quote!(), quote!())
+        (None, None)
     }
 }
 
-fn derive_enum(_data_enum: &syn::DataEnum) -> proc_macro::TokenStream {
-    todo!()
-}
+fn generate_any_call(field: &syn::Field) -> TokenStream {
+    let ty = &field.ty;
+    let any_call = if let Some(attr) = field.attrs.first() {
+        if let Ok(_path) = attr.meta.require_path_only() {
+            quote!(kani::bounded_any::<#ty, N>())
+        } else {
+            quote!(kani::any::<#ty>())
+        }
+    } else {
+        quote!(kani::any::<#ty>())
+    };
 
-fn derive_union(_data_union: &syn::DataUnion) -> proc_macro::TokenStream {
-    todo!()
+    let ident_tok = field.ident.as_ref().map(|ident| quote!(#ident: ));
+    quote!(#ident_tok #any_call)
 }

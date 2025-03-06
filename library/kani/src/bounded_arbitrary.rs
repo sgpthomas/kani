@@ -4,6 +4,8 @@
 //! This module introduces the `Arbitrary` trait as well as implementation for
 //! primitive types and other std containers.
 
+use std::ops::Deref;
+
 pub trait BoundedArbitrary {
     fn bounded_any<const N: usize>() -> Self;
 }
@@ -26,6 +28,15 @@ impl<T, const N: usize> std::ops::Deref for BoundedAny<T, N> {
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl<T, const N: usize> AsRef<T> for BoundedAny<T, N>
+where
+    <BoundedAny<T, N> as std::ops::Deref>::Target: AsRef<T>,
+{
+    fn as_ref(&self) -> &T {
+        self.deref()
     }
 }
 
