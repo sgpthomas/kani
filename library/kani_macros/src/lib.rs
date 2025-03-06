@@ -9,6 +9,7 @@
 //   RUSTFLAGS="-Zcrate-attr=feature(register_tool) -Zcrate-attr=register_tool(kanitool)"
 #![feature(proc_macro_diagnostic)]
 #![feature(proc_macro_span)]
+mod bounded_derive;
 mod derive;
 
 // proc_macro::quote is nightly-only, so we'll cobble things together instead
@@ -205,6 +206,12 @@ pub fn unstable_feature(attr: TokenStream, item: TokenStream) -> TokenStream {
 #[proc_macro_derive(Arbitrary, attributes(safety_constraint))]
 pub fn derive_arbitrary(item: TokenStream) -> TokenStream {
     derive::expand_derive_arbitrary(item)
+}
+
+#[proc_macro_error]
+#[proc_macro_derive(BoundedArbitrary, attributes(bounded))]
+pub fn derive_bounded_arbitrary(item: TokenStream) -> TokenStream {
+    bounded_derive::expand_derive_bounded_arbitrary(item)
 }
 
 /// Allow users to auto generate `Invariant` implementations by using

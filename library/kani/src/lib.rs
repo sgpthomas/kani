@@ -33,8 +33,10 @@ pub mod invariant;
 pub mod shadow;
 pub mod vec;
 
+mod bounded_arbitrary;
 mod models;
 
+pub use bounded_arbitrary::{BoundedAny, BoundedArbitrary};
 #[cfg(feature = "concrete_playback")]
 pub use concrete_playback::concrete_playback_run;
 pub use invariant::Invariant;
