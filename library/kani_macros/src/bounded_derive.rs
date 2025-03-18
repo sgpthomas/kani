@@ -64,7 +64,7 @@ fn union_constructor(_data_union: &syn::DataUnion) -> TokenStream {
 
 fn quote_generics(generics: &syn::Generics) -> (Option<TokenStream>, Option<TokenStream>) {
     let params = generics.type_params().map(|param| quote!(#param)).collect::<Vec<_>>();
-    let where_clauses = generics.type_params().map(|param| quote!(#param : kani::Arbitrary));
+    let where_clauses = generics.type_params().map(|param| quote!(#param : kani::BoundedArbitrary));
     if !params.is_empty() {
         (Some(quote!(<#(#params),*>)), Some(quote!(where #(#where_clauses),*)))
     } else {
